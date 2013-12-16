@@ -1,6 +1,3 @@
-hello-compojure-world
-=====================
-
 Demonstrates how to run a Clojure web app on a CoreOS Docker container.
 
 To run on your own computer:
