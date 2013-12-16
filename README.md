@@ -1,9 +1,9 @@
 hello-compojure-world
 =====================
 
-A Clojure / Compojure hello world web server to help me try out some deployment using Docker.
+Demonstrates how to run a Clojure web app on a CoreOS Docker container.
 
-To run:
+To run on your own computer:
 
     ./lein.sh ring server
 
