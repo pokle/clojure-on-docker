@@ -4,5 +4,6 @@ EXPOSE 80:80
 ADD . /app
 WORKDIR /app
 ENV LEIN_ROOT asdf
-CMD ./lein.sh ring server
+RUN  ./lein.sh ring uberjar
+CMD java -jar /app/target/hello-compojure-world-*-SNAPSHOT-standalone.jar
 
