@@ -20,6 +20,6 @@ To manually start on CoreOS:
 Things remaining to be worked out
 
 - How do I configure a SystemD Unit to start up the app automatically?
-- How do I push a build image to a non-public docker image repo
+- How do I push a build image to a non-public docker image repo?
 
 
