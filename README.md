@@ -4,7 +4,7 @@ To run on your own computer:
 
     ./lein.sh ring server
 
-To build on CoreOS:
+To build on CoreOS (Uses the Dockerfile):
 
 	git clone https://github.com/pokle/clojure-on-docker.git
 	cd clojure-on-docker
