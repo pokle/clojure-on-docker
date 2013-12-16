@@ -9,13 +9,13 @@ To run on your own computer:
 
 To build on CoreOS:
 
-	git clone https://github.com/pokle/hello-compojure-world.git
-	cd hello-compojure-world
-	docker build -t pokle/hello-compojure-world .
+	git clone https://github.com/pokle/clojure-on-docker.git
+	cd clojure-on-docker
+	docker build -t pokle/clojure-on-docker .
 
 To manually start on CoreOS:
 
-	docker run -p 80:3000 pokle/hello-compojure-world
+	docker run -p 80:3000 pokle/clojure-on-docker
 
 Things remaining to be worked out
 
