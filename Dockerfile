@@ -1,4 +1,3 @@
-
 # Base operating system image
 FROM centos
 
@@ -9,11 +8,11 @@ RUN yum install -y java-1.7.0-openjdk-devel.x86_64
 ADD . /app
 
 # Build a standalone jar with all the dependencies
+WORKDIR /app
 RUN  ./lein.sh ring uberjar
 
 # Default commands to start her up (not run during the build)
 EXPOSE 3000
-WORKDIR /app
 ENV LEIN_ROOT asdf
 CMD java -jar /app/target/hello-compojure-world-*-SNAPSHOT-standalone.jar
 
