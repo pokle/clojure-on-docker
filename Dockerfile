@@ -9,7 +9,7 @@ ADD . /app
 
 # Build a standalone jar with all the dependencies
 WORKDIR /app
-RUN  ./lein.sh ring uberjar
+RUN ./lein.sh ring uberjar
 
 # Default commands to start her up (not run during the build)
 EXPOSE 3000
