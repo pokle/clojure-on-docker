@@ -4,12 +4,17 @@
 # somewhere on your $PATH, like ~/bin. The rest of Leiningen will be
 # installed upon first run into the ~/.lein/self-installs directory.
 
-export LEIN_VERSION="2.3.4"
+export LEIN_VERSION="2.8.0"
 
 case $LEIN_VERSION in
     *SNAPSHOT) SNAPSHOT="YES" ;;
     *) SNAPSHOT="NO" ;;
 esac
+
+if [[ "$CLASSPATH" != "" ]]; then
+    echo "WARNING: You have \$CLASSPATH set, probably by accident."
+    echo "It is strongly recommended to unset this before proceeding."
+fi
 
 if [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]]; then
     delimiter=";"
@@ -23,11 +28,16 @@ else
   cygwin=false
 fi
 
+function command_not_found {
+    >&2 echo "Leiningen couldn't find $1 in your \$PATH ($PATH), which is required."
+    exit 1
+}
+
 function make_native_path {
     # ensure we have native paths
     if $cygwin && [[ "$1"  == /* ]]; then
     echo -n "$(cygpath -wp "$1")"
-    elif [[ "$OSTYPE" == "msys" && "$1"  == /* ]]; then
+    elif [[ "$OSTYPE" == "msys" && "$1"  == /?/* ]]; then
     echo -n "$(sh -c "(cd $1 2</dev/null && pwd -W) || echo $1 | sed 's/^\\/\([a-z]\)/\\1:/g'")"
     else
     echo -n "$1"
@@ -40,21 +50,21 @@ function add_path {
     shift
     while [ -n "$1" ];do
         # http://bashify.com/?Useful_Techniques:Indirect_Variables:Indirect_Assignment
-    export ${path_var}="${!path_var}${delimiter}$(make_native_path "$1")"
+        if [[ -z ${!path_var} ]]; then
+          export ${path_var}="$(make_native_path "$1")"
+        else
+          export ${path_var}="${!path_var}${delimiter}$(make_native_path "$1")"
+        fi
     shift
     done
 }
 
 function download_failed_message {
-    echo "Failed to download $1"
+    echo "Failed to download $1 (exit code $2)"
     echo "It's possible your HTTP client's certificate store does not have the"
     echo "correct certificate authority needed. This is often caused by an"
-    echo "out-of-date version of libssl. Either upgrade it or set HTTP_CLIENT"
-    echo "to turn off certificate checks:"
-    echo "  export HTTP_CLIENT=\"wget --no-check-certificate -O\" # or"
-    echo "  export HTTP_CLIENT=\"curl --insecure -f -L -o\""
-    echo "It's also possible that you're behind a firewall haven't yet"
-    echo "set HTTP_PROXY and HTTPS_PROXY."
+    echo "out-of-date version of libssl. It's also possible that you're behind a"
+    echo "firewall and haven't set HTTP_PROXY and HTTPS_PROXY."
 }
 
 function self_install {
@@ -65,24 +75,18 @@ function self_install {
   fi
   echo "Downloading Leiningen to $LEIN_JAR now..."
   mkdir -p "$(dirname "$LEIN_JAR")"
-  LEIN_URL="https://leiningen.s3.amazonaws.com/downloads/leiningen-$LEIN_VERSION-standalone.jar"
+  LEIN_URL="https://github.com/technomancy/leiningen/releases/download/$LEIN_VERSION/leiningen-$LEIN_VERSION-standalone.zip"
   $HTTP_CLIENT "$LEIN_JAR.pending" "$LEIN_URL"
-  if [ $? == 0 ]; then
+  local exit_code=$?
+  if [ $exit_code == 0 ]; then
       # TODO: checksum
       mv -f "$LEIN_JAR.pending" "$LEIN_JAR"
   else
       rm "$LEIN_JAR.pending" 2> /dev/null
-      download_failed_message "$LEIN_URL"
+      download_failed_message "$LEIN_URL" "$exit_code"
       exit 1
   fi
 }
-
-if [ `id -u` -eq 0 ] && [ "$LEIN_ROOT" = "" ]; then
-    echo "WARNING: You're currently running as root; probably by accident."
-    echo "Press control-C to abort or Enter to continue as root."
-    echo "Set LEIN_ROOT to disable this warning."
-    read _
-fi
 
 NOT_FOUND=1
 ORIGINAL_PWD="$PWD"
@@ -97,29 +101,32 @@ done
 
 export LEIN_HOME="${LEIN_HOME:-"$HOME/.lein"}"
 
-for f in "$LEIN_HOME/leinrc" ".leinrc"; do
+for f in "/etc/leinrc" "$LEIN_HOME/leinrc" ".leinrc"; do
   if [ -e "$f" ]; then
     source "$f"
   fi
 done
 
 if $cygwin; then
-    export LEIN_HOME=`cygpath -w "$LEIN_HOME"`
+    export LEIN_HOME=$(cygpath -w "$LEIN_HOME")
 fi
 
 LEIN_JAR="$LEIN_HOME/self-installs/leiningen-$LEIN_VERSION-standalone.jar"
 
 # normalize $0 on certain BSDs
 if [ "$(dirname "$0")" = "." ]; then
-    SCRIPT="$(which $(basename "$0"))"
+    SCRIPT="$(which "$(basename "$0")")"
+    if [ -z "$SCRIPT" ]; then
+        SCRIPT="$0"
+    fi
 else
     SCRIPT="$0"
 fi
 
 # resolve symlinks to the script itself portably
 while [ -h "$SCRIPT" ] ; do
-    ls=`ls -ld "$SCRIPT"`
-    link=`expr "$ls" : '.*-> \(.*\)$'`
+    ls=$(ls -ld "$SCRIPT")
+    link=$(expr "$ls" : '.*-> \(.*\)$')
     if expr "$link" : '/.*' > /dev/null; then
         SCRIPT="$link"
     else
@@ -129,7 +136,7 @@ done
 
 BIN_DIR="$(dirname "$SCRIPT")"
 
-export LEIN_JVM_OPTS="${LEIN_JVM_OPTS-"-XX:+TieredCompilation -XX:TieredStopAtLevel=1"}"
+export LEIN_JVM_OPTS="${LEIN_JVM_OPTS-"-Xverify:none -XX:+TieredCompilation -XX:TieredStopAtLevel=1"}"
 
 # This needs to be defined before we call HTTP_CLIENT below
 if [ "$HTTP_CLIENT" = "" ]; then
@@ -175,7 +182,7 @@ if [ -r "$BIN_DIR/../src/leiningen/version.clj" ]; then
         ORIG_PWD="$PWD"
         cd "$LEIN_DIR"
 
-        $0 classpath .lein-classpath
+        LEIN_NO_USER_PROFILES=1 $0 classpath .lein-classpath
         sum "$LEIN_DIR/project.clj" "$LEIN_DIR/leiningen-core/project.clj" > \
             .lein-project-checksum
         cd "$ORIG_PWD"
@@ -194,19 +201,27 @@ if [ -r "$BIN_DIR/../src/leiningen/version.clj" ]; then
 else # Not running from a checkout
     add_path CLASSPATH "$LEIN_JAR"
 
-    BOOTCLASSPATH="-Xbootclasspath/a:$LEIN_JAR"
+    if [ "$LEIN_USE_BOOTCLASSPATH" != "" ]; then
+        LEIN_JVM_OPTS="-Xbootclasspath/a:$LEIN_JAR $LEIN_JVM_OPTS"
+    fi
 
     if [ ! -r "$LEIN_JAR" -a "$1" != "self-install" ]; then
         self_install
     fi
 fi
 
-# TODO: explain what to do when Java is missing
-export JAVA_CMD="${JAVA_CMD:-"java"}"
-export LEIN_JAVA_CMD="${LEIN_JAVA_CMD:-$JAVA_CMD}"
+if [ ! -x "$JAVA_CMD" ] && ! type -f java >/dev/null
+then
+    >&2 echo "Leiningen coundn't find 'java' executable, which is required."
+    >&2 echo "Please either set JAVA_CMD or put java (>=1.6) in your \$PATH ($PATH)."
+    exit 1
+fi
 
-if [[ "$(basename "$LEIN_JAVA_CMD")" == *drip* ]]; then
+export LEIN_JAVA_CMD="${LEIN_JAVA_CMD:-${JAVA_CMD:-java}}"
+
+if [[ -z "${DRIP_INIT+x}" && "$(basename "$LEIN_JAVA_CMD")" == *drip* ]]; then
     export DRIP_INIT="$(printf -- '-e\n(require (quote leiningen.repl))')"
+    export DRIP_INIT_CLASS="clojure.main"
 fi
 
 # Support $JAVA_OPTS for backwards-compatibility.
@@ -243,7 +258,7 @@ elif [ "$1" = "upgrade" ] || [ "$1" = "downgrade" ]; then
     fi
     if [ $SNAPSHOT = "YES" ]; then
         echo "The upgrade task is only meant for stable releases."
-        echo "See the \"Hacking\" section of the README."
+        echo "See the \"Bootstrapping\" section of CONTRIBUTING.md."
         exit 1
     fi
     if [ ! -w "$SCRIPT" ]; then
@@ -258,13 +273,17 @@ elif [ "$1" = "upgrade" ] || [ "$1" = "downgrade" ]; then
             y|Y|"")
                 echo
                 echo "Upgrading..."
-                TARGET="/tmp/lein-$$-upgrade"
+                TARGET="/tmp/lein-${$}-upgrade"
                 if $cygwin; then
-                    TARGET=`cygpath -w $TARGET`
+                    TARGET=$(cygpath -w "$TARGET")
                 fi
                 LEIN_SCRIPT_URL="https://github.com/technomancy/leiningen/raw/$TARGET_VERSION/bin/lein"
                 $HTTP_CLIENT "$TARGET" "$LEIN_SCRIPT_URL"
                 if [ $? == 0 ]; then
+                    cmp -s "$TARGET" "$SCRIPT"
+                    if [ $? == 0 ]; then
+                        echo "Leiningen is already up-to-date."
+                    fi
                     mv "$TARGET" "$SCRIPT" && chmod +x "$SCRIPT"
                     exec "$SCRIPT" version
                 else
@@ -278,7 +297,7 @@ elif [ "$1" = "upgrade" ] || [ "$1" = "downgrade" ]; then
 else
     if $cygwin; then
         # When running on Cygwin, use Windows-style paths for java
-        ORIGINAL_PWD=`cygpath -w "$ORIGINAL_PWD"`
+        ORIGINAL_PWD=$(cygpath -w "$ORIGINAL_PWD")
     fi
 
     # apply context specific CLASSPATH entries
@@ -286,37 +305,54 @@ else
         add_path CLASSPATH "$(cat .lein-classpath)"
     fi
 
-    if [ $DEBUG ]; then
+    if [ -n "$DEBUG" ]; then
         echo "Leiningen's classpath: $CLASSPATH"
     fi
 
-    if ([ "$LEIN_FAST_TRAMPOLINE" != "" ] || [ -r .lein-fast-trampoline ]) &&
-        [ -r project.clj ]; then
-        INPUTS="$@ $(cat project.clj) $LEIN_VERSION $(test -f "$LEIN_HOME/profiles.clj" && cat "$LEIN_HOME/profiles.clj")"
-        INPUT_CHECKSUM=$(echo $INPUTS | shasum - | cut -f 1 -d " ")
+    if [ -r .lein-fast-trampoline ]; then
+        export LEIN_FAST_TRAMPOLINE='y'
+    fi
+
+    if [ "$LEIN_FAST_TRAMPOLINE" != "" ] && [ -r project.clj ]; then
+        INPUTS="$* $(cat project.clj) $LEIN_VERSION $(test -f "$LEIN_HOME/profiles.clj" && cat "$LEIN_HOME/profiles.clj")"
+
+        if command -v shasum >/dev/null 2>&1; then
+            SUM="shasum"
+        elif command -v sha1sum >/dev/null 2>&1; then
+            SUM="sha1sum"
+        else
+            command_not_found "sha1sum or shasum"
+        fi
+
+        export INPUT_CHECKSUM=$(echo "$INPUTS" | $SUM | cut -f 1 -d " ")
         # Just don't change :target-path in project.clj, mkay?
         TRAMPOLINE_FILE="target/trampolines/$INPUT_CHECKSUM"
     else
-        TRAMPOLINE_FILE="$(mktemp /tmp/lein-trampoline-XXXXXXXXXXXXX)"
-        trap "rm -f $TRAMPOLINE_FILE" EXIT
+        if hash mktemp 2>/dev/null; then
+            # Check if mktemp is available before using it
+            TRAMPOLINE_FILE="$(mktemp /tmp/lein-trampoline-XXXXXXXXXXXXX)"
+        else
+            TRAMPOLINE_FILE="/tmp/lein-trampoline-$$"
+        fi
+        trap 'rm -f $TRAMPOLINE_FILE' EXIT
     fi
 
     if $cygwin; then
-        TRAMPOLINE_FILE=`cygpath -w $TRAMPOLINE_FILE`
+        TRAMPOLINE_FILE=$(cygpath -w "$TRAMPOLINE_FILE")
     fi
 
     if [ "$INPUT_CHECKSUM" != "" ] && [ -r "$TRAMPOLINE_FILE" ]; then
-        if [ $DEBUG ]; then
+        if [ -n "$DEBUG" ]; then
             echo "Fast trampoline with $TRAMPOLINE_FILE."
         fi
-        exec sh -c "exec $(cat $TRAMPOLINE_FILE)"
+        exec sh -c "exec $(cat "$TRAMPOLINE_FILE")"
     else
         export TRAMPOLINE_FILE
-        "$LEIN_JAVA_CMD" -client \
-            "${BOOTCLASSPATH[@]}" \
-            $LEIN_JVM_OPTS \
+        "$LEIN_JAVA_CMD" \
             -Dfile.encoding=UTF-8 \
             -Dmaven.wagon.http.ssl.easy=false \
+            -Dmaven.wagon.rto=10000 \
+            $LEIN_JVM_OPTS \
             -Dleiningen.original.pwd="$ORIGINAL_PWD" \
             -Dleiningen.script="$SCRIPT" \
             -classpath "$CLASSPATH" \
@@ -331,9 +367,9 @@ else
         ## TODO: [ -r "$TRAMPOLINE_FILE" ] may be redundant? A trampoline file
         ## is always generated these days.
         if [ -r "$TRAMPOLINE_FILE" ] && [ "$LEIN_TRAMPOLINE_WARMUP" = "" ]; then
-            TRAMPOLINE="$(cat $TRAMPOLINE_FILE)"
+            TRAMPOLINE="$(cat "$TRAMPOLINE_FILE")"
             if [ "$INPUT_CHECKSUM" = "" ]; then
-                rm $TRAMPOLINE_FILE
+                rm "$TRAMPOLINE_FILE"
             fi
             if [ "$TRAMPOLINE" = "" ]; then
                 exit $EXIT_CODE
